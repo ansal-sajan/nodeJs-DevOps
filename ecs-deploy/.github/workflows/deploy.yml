@@ -1,0 +1,60 @@
+name: Deploy to ECS
+
+on:
+  push:
+    branches:
+      - master  # Specify the branch you want to trigger the deployment from
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1  # Change to your AWS region
+
+      - name: Create new task definition revision
+        id: task-def
+        run: |
+          # Define variables
+          TASK_DEFINITION_FAMILY="my-app"
+          NEW_IMAGE_URI="208236777744.dkr.ecr.us-east-1.amazonaws.com/app:v2"
+
+          # Describe the current task definition
+          CURRENT_TASK_DEF=$(aws ecs describe-task-definition --task-definition $TASK_DEFINITION_FAMILY)
+          
+          # Extract the current container definition
+          CURRENT_CONTAINER_DEF=$(echo $CURRENT_TASK_DEF | jq '.taskDefinition.containerDefinitions')
+          
+          # Replace the image URI in the container definition
+          NEW_CONTAINER_DEF=$(echo $CURRENT_CONTAINER_DEF | jq --arg IMAGE_URI "$NEW_IMAGE_URI" '.[0].image = $IMAGE_URI')
+
+          # Register new task definition revision
+          NEW_TASK_DEF=$(aws ecs register-task-definition \
+            --family $TASK_DEFINITION_FAMILY \
+            --execution-role-arn $(echo $CURRENT_TASK_DEF | jq -r '.taskDefinition.executionRoleArn') \
+            --network-mode $(echo $CURRENT_TASK_DEF | jq -r '.taskDefinition.networkMode') \
+            --container-definitions "$NEW_CONTAINER_DEF" \
+            --requires-compatibilities "FARGATE" \
+            --cpu $(echo $CURRENT_TASK_DEF | jq -r '.taskDefinition.cpu') \
+            --memory $(echo $CURRENT_TASK_DEF | jq -r '.taskDefinition.memory') \
+            --runtime-platform $(echo $CURRENT_TASK_DEF | jq -r '.taskDefinition.runtimePlatform | tojson'))
+
+          # Extract new task definition revision ARN
+          echo "::set-output name=new_task_def_arn::$(echo $NEW_TASK_DEF | jq -r '.taskDefinition.taskDefinitionArn')"
+
+      - name: Update ECS service with new task definition
+        run: |
+          ECS_CLUSTER="ecs-fargate-cluster"  # Replace with your ECS cluster name
+          ECS_SERVICE="my-app-service"  # Replace with your ECS service name
+          NEW_TASK_DEF_ARN="${{ steps.task-def.outputs.new_task_def_arn }}"
+
+          # Update ECS service with the new task definition revision
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition $NEW_TASK_DEF_ARN --force-new-deployment
