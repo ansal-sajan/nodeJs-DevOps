@@ -38,12 +38,12 @@ resource "aws_ecs_task_definition" "my_app" {
   execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
 
   container_definitions = jsonencode([{
-    name      = "webserver"
-    image     = "nginx:latest"  # Replace with your container image
+    name      = "webapp"
+    image     = "ansalsajan/node:app"  # Replace with your container image
     essential = true
     portMappings = [{
-      containerPort = 80
-      hostPort      = 80
+      containerPort = 3000
+      hostPort      = 3000
       protocol      = "tcp"
     }]
   }])
@@ -63,8 +63,8 @@ resource "aws_ecs_service" "my_app_service" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = ["subnet-0116beff52605851f"]  # Specify your public subnet ID here
-    security_groups = ["sg-04b1422f9d03e2e3b"]
+    subnets         = ["subnet-06e2e5788bd3d3b6f"]  # Specify your public subnet ID here
+    security_groups = ["sg-0c908af556a0de2bc"]
     assign_public_ip = true
   }
 
